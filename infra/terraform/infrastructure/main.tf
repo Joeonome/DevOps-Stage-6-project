@@ -50,8 +50,8 @@ resource "aws_security_group" "micro_service" {
 
 # EC2 Instance for microservice
 resource "aws_instance" "todo_server" {
-  ami                    = var.ami_id
-  instance_type          = var.instance_type
+  ami                    = "ami-0fa91bc90632c73c9"
+  instance_type          = "t3.medium"
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.micro_service.id]
 
