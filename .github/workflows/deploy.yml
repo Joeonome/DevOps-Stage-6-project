@@ -77,24 +77,24 @@ jobs:
       
       - name: Terraform Init (Backend Setup)
         if: steps.check-backend.outputs.exists == 'false'
-        working-directory: ./terraform/backend-setup
+        working-directory: ./infra/terraform/backend-setup
         run: terraform init
       
       - name: Terraform Plan (Backend Setup)
         if: steps.check-backend.outputs.exists == 'false'
-        working-directory: ./terraform/backend-setup
+        working-directory: ./infra/terraform/backend-setup
         run: terraform plan -out=tfplan
       
       - name: Terraform Apply (Backend Setup)
         if: steps.check-backend.outputs.exists == 'false'
-        working-directory: ./terraform/backend-setup
+        working-directory: ./infra/terraform/backend-setup
         run: |
           terraform apply -auto-approve tfplan
           echo "✅ Backend resources created successfully!"
       
       - name: Display Backend Configuration
         if: steps.check-backend.outputs.exists == 'false'
-        working-directory: ./terraform/backend-setup
+        working-directory: ./infra/terraform/backend-setup
         run: terraform output -raw backend_config
 
   #==============================================================================
@@ -115,16 +115,16 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
       
       - name: Terraform Format Check
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: terraform fmt -check -recursive
         continue-on-error: true
       
       - name: Terraform Init
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: terraform init -backend=false
       
       - name: Terraform Validate
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: terraform validate
 
   #==============================================================================
@@ -163,12 +163,12 @@ jobs:
           chmod 600 ~/.ssh/microservice.pem
       
       - name: Terraform Init
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: terraform init
       
       - name: Terraform Plan with Drift Detection
         id: plan
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: |
           set +e  # Don't exit on error
           
@@ -206,7 +206,7 @@ jobs:
       
       - name: Save Plan Output
         if: steps.plan.outputs.exitcode == '2'
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: |
           terraform show -no-color tfplan > plan_output.txt
           echo "## 📊 Terraform Plan Output" > plan_summary.md
@@ -225,9 +225,9 @@ jobs:
         with:
           name: terraform-plan
           path: |
-            terraform/infrastructure/tfplan
-            terraform/infrastructure/plan_output.txt
-            terraform/infrastructure/plan_summary.md
+            infra/terraform/infrastructure/tfplan
+            infra/terraform/infrastructure/plan_output.txt
+            infra/terraform/infrastructure/plan_summary.md
           retention-days: 30
       
       - name: Comment PR with Drift Status
@@ -435,7 +435,7 @@ jobs:
       - name: Setup SSH Key
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/microservice.pem
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/microservice.pem
           chmod 600 ~/.ssh/microservice.pem
       
       - name: Setup Ansible
@@ -445,17 +445,17 @@ jobs:
           ansible --version
       
       - name: Terraform Init
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: terraform init
       
       - name: Download Plan
         uses: actions/download-artifact@v4
         with:
           name: terraform-plan
-          path: terraform/infrastructure/
+          path: infra/terraform/infrastructure/
       
       - name: Terraform Apply
-        working-directory: ./terraform/infrastructure
+        working-directory: ./infra/terraform/infrastructure
         run: |
           echo "🚀 Applying infrastructure changes..."
           terraform apply -auto-approve tfplan
