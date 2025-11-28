@@ -316,28 +316,7 @@ jobs:
           This is an automated message from GitHub Actions.
           EOF
       
-      - name: Send Email via SendGrid
-        run: |
-          if [ -n "${{ secrets.SENDGRID_API_KEY }}" ]; then
-            curl -X POST https://api.sendgrid.com/v3/mail/send \
-              -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
-              -H "Content-Type: application/json" \
-              -d '{
-                "personalizations": [{
-                  "to": [{"email": "${{ secrets.ALERT_EMAIL }}"}],
-                  "subject": "🚨 Terraform Drift Detected - ${{ github.repository }}"
-                }],
-                "from": {"email": "${{ secrets.FROM_EMAIL }}"},
-                "content": [{
-                  "type": "text/plain",
-                  "value": '"$(cat email_body.txt | sed 's/"/\\"/g' | tr '\n' ' ')"'
-                }]
-              }'
-            echo "✅ SendGrid email sent"
-          else
-            echo "⚠️ SENDGRID_API_KEY not configured, skipping SendGrid notification"
-          fi
-      
+
       - name: Send Email via SMTP
         if: always()
         continue-on-error: true
