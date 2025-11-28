@@ -317,7 +317,7 @@ jobs:
           EOF
       
       - name: Send Email via SendGrid
-        if: secrets.SENDGRID_API_KEY != ''
+        if: ${{ secrets.SENDGRID_API_KEY != '' }}
         run: |
           curl -X POST https://api.sendgrid.com/v3/mail/send \
             -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
@@ -335,7 +335,7 @@ jobs:
             }'
       
       - name: Send Email via SMTP
-        if: secrets.SMTP_SERVER != ''
+        if: ${{ secrets.SMTP_SERVER != '' }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
@@ -349,7 +349,7 @@ jobs:
           priority: high
       
       - name: Send Slack Notification (Optional)
-        if: secrets.SLACK_WEBHOOK_URL != ''
+        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
         run: |
           curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
             -H "Content-Type: application/json" \
@@ -556,7 +556,7 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
       
       - name: Send Success Email
-        if: success() && needs.drift-detection.outputs.drift_detected == 'true' && secrets.SMTP_SERVER != ''
+        if: ${{ success() && needs.drift-detection.outputs.drift_detected == 'true' && secrets.SMTP_SERVER != '' }}
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
