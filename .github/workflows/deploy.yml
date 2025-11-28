@@ -317,25 +317,30 @@ jobs:
           EOF
       
       - name: Send Email via SendGrid
-        if: ${{ secrets.SENDGRID_API_KEY != '' }}
         run: |
-          curl -X POST https://api.sendgrid.com/v3/mail/send \
-            -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "personalizations": [{
-                "to": [{"email": "${{ secrets.ALERT_EMAIL }}"}],
-                "subject": "🚨 Terraform Drift Detected - ${{ github.repository }}"
-              }],
-              "from": {"email": "${{ secrets.FROM_EMAIL }}"},
-              "content": [{
-                "type": "text/plain",
-                "value": '"$(cat email_body.txt | sed 's/"/\\"/g' | tr '\n' ' ')"'
-              }]
-            }'
+          if [ -n "${{ secrets.SENDGRID_API_KEY }}" ]; then
+            curl -X POST https://api.sendgrid.com/v3/mail/send \
+              -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
+              -H "Content-Type: application/json" \
+              -d '{
+                "personalizations": [{
+                  "to": [{"email": "${{ secrets.ALERT_EMAIL }}"}],
+                  "subject": "🚨 Terraform Drift Detected - ${{ github.repository }}"
+                }],
+                "from": {"email": "${{ secrets.FROM_EMAIL }}"},
+                "content": [{
+                  "type": "text/plain",
+                  "value": '"$(cat email_body.txt | sed 's/"/\\"/g' | tr '\n' ' ')"'
+                }]
+              }'
+            echo "✅ SendGrid email sent"
+          else
+            echo "⚠️ SENDGRID_API_KEY not configured, skipping SendGrid notification"
+          fi
       
       - name: Send Email via SMTP
-        if: ${{ secrets.SMTP_SERVER != '' }}
+        if: always()
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
@@ -348,50 +353,6 @@ jobs:
           body: file://email_body.txt
           priority: high
       
-      - name: Send Slack Notification (Optional)
-        if: ${{ secrets.SLACK_WEBHOOK_URL != '' }}
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-            -H "Content-Type: application/json" \
-            -d '{
-              "text": "⚠️ *Terraform Drift Detected*",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "🚨 Terraform Drift Alert"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Triggered by:* ${{ github.actor }}"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "Infrastructure changes detected. Workflow paused for approval."
-                  }
-                },
-                {
-                  "type": "actions",
-                  "elements": [
-                    {
-                      "type": "button",
-                      "text": {
-                        "type": "plain_text",
-                        "text": "View Workflow"
-                      },
-                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                    }
-                  ]
-                }
-              ]
-            }'
       
       - name: Create Issue for Drift Detection
         uses: actions/github-script@v7
@@ -556,7 +517,8 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
       
       - name: Send Success Email
-        if: ${{ success() && needs.drift-detection.outputs.drift_detected == 'true' && secrets.SMTP_SERVER != '' }}
+        if: ${{ success() && needs.drift-detection.outputs.drift_detected == 'true' }}
+        continue-on-error: true
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
