@@ -8,8 +8,8 @@
     docker_compose_file: "docker-compose.yml"
     traefik_file: "traefik.yml"   # Your traefik config
     traefik_dynamic_file: "dynamic.yml"  # Optional dynamic config
-    domain_name: "example.com"    # Change to your domain
-    email: "admin@example.com"    # For SSL certificates
+    domain_name: "onomelabs.name.ng"    # Change to your domain
+    email: "joseph.onumeguolor@gmail.com"    # For SSL certificates
 
   tasks:
 
