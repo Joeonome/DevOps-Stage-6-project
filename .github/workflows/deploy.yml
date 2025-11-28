@@ -34,10 +34,10 @@ on:
           - drift-check
       
 env:
-  AWS_REGION: eu-north-1
+  AWS_REGION: ${{ secrets.AWS_REGION }}
   TF_VERSION: 1.6.0
-  STATE_BUCKET: joeonome-microservice-state-001  # Must match your backend bucket
-  DYNAMODB_TABLE: terraform-locks
+  STATE_BUCKET: ${{ secrets.STATE_BUCKET }}  # Must match your backend bucket
+  DYNAMODB_TABLE: ${{ secrets.DYNAMODB_TABLE }}  # Must match your backend table
 
 jobs:
   #==============================================================================
@@ -57,17 +57,17 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: ${{ env.TF_VERSION }}
+          terraform_version: ${{ secrets.TF_VERSION }}
       
       - name: Check if Backend Already Exists
         id: check-backend
         run: |
-          if aws s3api head-bucket --bucket ${{ env.STATE_BUCKET }} 2>/dev/null; then
+          if aws s3api head-bucket --bucket ${{ secrets.STATE_BUCKET }} 2>/dev/null; then
             echo "Backend already exists"
             echo "exists=true" >> $GITHUB_OUTPUT
           else
@@ -148,7 +148,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
       
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3

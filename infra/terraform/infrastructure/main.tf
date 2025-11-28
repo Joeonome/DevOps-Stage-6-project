@@ -158,8 +158,8 @@ resource "null_resource" "ansible_provision" {
   command = <<EOT
   ANSIBLE_HOST_KEY_CHECKING=False \
   ansible-playbook \
-    -i ${path.module}/../ansible/inventory.ini \
-    ${path.module}/../ansible/playbook.yml
+    -i ${path.module}/../../ansible/inventory.ini \
+    ${path.module}/../../ansible/playbook.yml
   EOT
 }
 
