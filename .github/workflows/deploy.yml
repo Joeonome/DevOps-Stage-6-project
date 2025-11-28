@@ -5,9 +5,10 @@ on:
     branches:
       - main
     paths:
-      - 'terraform/**'
-      - 'ansible/**'
+      - 'infra/terraform/**'
+      - 'infra/ansible/**'
       - '.github/workflows/deploy.yml'
+
   
   pull_request:
     branches:
