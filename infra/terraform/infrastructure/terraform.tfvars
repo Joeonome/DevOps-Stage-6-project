@@ -1,5 +1,5 @@
 aws_region             = "eu-north-1"
-ami_id                 = "ami-092358d0ec576e6c6"  # Ubuntu 22.04 LTS for eu-north-1
+ami_id                 = "ami-09a9858973b288bdd"  # Ubuntu 22.04 LTS for eu-north-1
 instance_type          = "t3.medium"
 key_name               = "microservice"  # CHANGE THIS to your AWS key pair name
 private_key_path       = "~/.ssh/microservice.pem"  # CHANGE THIS to match your key name
