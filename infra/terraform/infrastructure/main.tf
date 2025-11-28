@@ -155,8 +155,14 @@ resource "null_resource" "ansible_provision" {
   depends_on = [local_file.ansible_inventory]
 
   provisioner "local-exec" {
-    command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ${var.ansible_inventory_path} ${var.ansible_playbook_path}"
-  }
+  command = <<EOT
+  ANSIBLE_HOST_KEY_CHECKING=False \
+  ansible-playbook \
+    -i ${path.module}/../ansible/inventory.ini \
+    ${path.module}/../ansible/playbook.yml
+  EOT
+}
+
 
   triggers = {
     instance_id = aws_instance.todo_server.id
