@@ -1,0 +1,131 @@
+version: "3"
+services:
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      - "--providers.docker=true"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.mytls.acme.tlschallenge=true"
+      - "--certificatesresolvers.mytls.acme.email=joseph.onumeguolor@gmail.com"
+      - "--certificatesresolvers.mytls.acme.storage=/letsencrypt/acme.json"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8000:8000"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+      
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - AUTH_API_ADDRESS=http://auth-api:8081
+      - TODOS_API_ADDRESS=http://todos-api:8082
+    depends_on:
+      - auth-api
+      - todos-api
+    command: npm run dev
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`www.onomelabs.name.ng`) || Host(`onomelabs.name.ng`)"
+      - "traefik.http.routers.frontend.priority=1"
+      - "traefik.http.services.frontend.loadbalancer.server.port=8080"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=mytls"
+      
+  auth-api:
+    build:
+      context: ./auth-api
+      dockerfile: Dockerfile
+    container_name: auth-api
+    env_file:
+      - .env
+    depends_on:
+      - users-api
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=(Host(`www.onomelabs.name.ng`) || Host(`onomelabs.name.ng`)) && PathPrefix(`/api/auth`)"
+      - "traefik.http.routers.auth.priority=10"
+      - "traefik.http.services.auth.loadbalancer.server.port=8081"
+      - "traefik.http.middlewares.auth-strip.stripprefix.prefixes=/api/auth"
+      - "traefik.http.routers.auth.middlewares=auth-strip"
+      - "traefik.http.routers.auth.entrypoints=websecure"
+      - "traefik.http.routers.auth.tls.certresolver=mytls"
+      
+  todos-api:
+    build:
+      context: ./todos-api
+      dockerfile: Dockerfile
+    container_name: todos-api
+    environment:
+      - TODOS_API_PORT=8082
+      - JWT_SECRET=${JWT_SECRET}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_CHANNEL=${REDIS_CHANNEL}
+    depends_on:
+      - redis-queue
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.todos.rule=(Host(`www.onomelabs.name.ng`) || Host(`onomelabs.name.ng`)) && PathPrefix(`/api/todos`)"
+      - "traefik.http.routers.todos.priority=10"
+      - "traefik.http.services.todos.loadbalancer.server.port=8082"
+      - "traefik.http.middlewares.todos-strip.stripprefix.prefixes=/api/todos"
+      - "traefik.http.routers.todos.middlewares=todos-strip"
+      - "traefik.http.routers.todos.entrypoints=websecure"
+      - "traefik.http.routers.todos.tls.certresolver=mytls"
+      
+  users-api:
+    build:
+      context: ./users-api
+      dockerfile: Dockerfile
+    container_name: users-api
+    environment:
+      - SERVER_PORT=8083
+      - JWT_SECRET=${JWT_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.users.rule=(Host(`www.onomelabs.name.ng`) || Host(`onomelabs.name.ng`)) && PathPrefix(`/api/users`)"
+      - "traefik.http.routers.users.priority=10"
+      - "traefik.http.services.users.loadbalancer.server.port=8083"
+      - "traefik.http.middlewares.users-strip.stripprefix.prefixes=/api/users"
+      - "traefik.http.routers.users.middlewares=users-strip"
+      - "traefik.http.routers.users.entrypoints=websecure"
+      - "traefik.http.routers.users.tls.certresolver=mytls"
+      
+  log-processor:
+    build:
+      context: ./log-message-processor
+      dockerfile: Dockerfile
+    container_name: log-processor
+    environment:
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - REDIS_CHANNEL=${REDIS_CHANNEL}
+    depends_on:
+      - redis-queue
+      
+  redis-queue:
+    image: redis:alpine
+    container_name: redis-queue
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      
+volumes:
+  redis_data:

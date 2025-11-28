@@ -1,0 +1,579 @@
+name: Deploy Microservice Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+      - '.github/workflows/deploy.yml'
+  
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'
+      - 'ansible/**'
+  
+  # Scheduled drift detection (runs daily at 9 AM UTC)
+  schedule:
+    - cron: '0 9 * * *'
+  
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'apply'
+        type: choice
+        options:
+          - apply
+          - destroy
+          - setup-backend
+          - drift-check
+      
+env:
+  AWS_REGION: eu-north-1
+  TF_VERSION: 1.6.0
+  STATE_BUCKET: microservice-terraform-state-12345  # Must match your backend bucket
+  DYNAMODB_TABLE: terraform-locks
+
+jobs:
+  #==============================================================================
+  # Job 1: Setup Backend (Run only when manually triggered with setup-backend)
+  #==============================================================================
+  setup-backend:
+    name: Setup Terraform Backend
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action == 'setup-backend'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Check if Backend Already Exists
+        id: check-backend
+        run: |
+          if aws s3api head-bucket --bucket ${{ env.STATE_BUCKET }} 2>/dev/null; then
+            echo "Backend already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Backend does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Terraform Init (Backend Setup)
+        if: steps.check-backend.outputs.exists == 'false'
+        working-directory: ./terraform/backend-setup
+        run: terraform init
+      
+      - name: Terraform Plan (Backend Setup)
+        if: steps.check-backend.outputs.exists == 'false'
+        working-directory: ./terraform/backend-setup
+        run: terraform plan -out=tfplan
+      
+      - name: Terraform Apply (Backend Setup)
+        if: steps.check-backend.outputs.exists == 'false'
+        working-directory: ./terraform/backend-setup
+        run: |
+          terraform apply -auto-approve tfplan
+          echo "✅ Backend resources created successfully!"
+      
+      - name: Display Backend Configuration
+        if: steps.check-backend.outputs.exists == 'false'
+        working-directory: ./terraform/backend-setup
+        run: terraform output -raw backend_config
+
+  #==============================================================================
+  # Job 2: Validate Terraform Configuration
+  #==============================================================================
+  validate:
+    name: Validate Terraform
+    runs-on: ubuntu-latest
+    if: github.event.inputs.action != 'setup-backend'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Terraform Format Check
+        working-directory: ./terraform/infrastructure
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      
+      - name: Terraform Init
+        working-directory: ./terraform/infrastructure
+        run: terraform init -backend=false
+      
+      - name: Terraform Validate
+        working-directory: ./terraform/infrastructure
+        run: terraform validate
+
+  #==============================================================================
+  # Job 3: Drift Detection & Plan
+  #==============================================================================
+  drift-detection:
+    name: Drift Detection & Plan
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event.inputs.action != 'setup-backend'
+    outputs:
+      drift_detected: ${{ steps.drift-check.outputs.drift_detected }}
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false  # Required to capture exit code
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/microservice.pem
+          chmod 600 ~/.ssh/microservice.pem
+      
+      - name: Terraform Init
+        working-directory: ./terraform/infrastructure
+        run: terraform init
+      
+      - name: Terraform Plan with Drift Detection
+        id: plan
+        working-directory: ./terraform/infrastructure
+        run: |
+          set +e  # Don't exit on error
+          
+          if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
+            terraform plan -detailed-exitcode -destroy -out=tfplan
+          else
+            terraform plan -detailed-exitcode -out=tfplan
+          fi
+          
+          EXITCODE=$?
+          echo "exitcode=$EXITCODE" >> $GITHUB_OUTPUT
+          
+          # Exit codes:
+          # 0 = No changes (no drift)
+          # 1 = Error
+          # 2 = Changes present (drift detected)
+          
+          if [ $EXITCODE -eq 1 ]; then
+            echo "❌ Terraform plan failed with errors"
+            exit 1
+          fi
+          
+          exit 0
+      
+      - name: Check for Drift
+        id: drift-check
+        run: |
+          if [ "${{ steps.plan.outputs.exitcode }}" == "2" ]; then
+            echo "⚠️ DRIFT DETECTED - Changes are required!"
+            echo "drift_detected=true" >> $GITHUB_OUTPUT
+          else
+            echo "✅ No drift detected - Infrastructure matches code"
+            echo "drift_detected=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Save Plan Output
+        if: steps.plan.outputs.exitcode == '2'
+        working-directory: ./terraform/infrastructure
+        run: |
+          terraform show -no-color tfplan > plan_output.txt
+          echo "## 📊 Terraform Plan Output" > plan_summary.md
+          echo "" >> plan_summary.md
+          echo '```hcl' >> plan_summary.md
+          head -n 100 plan_output.txt >> plan_summary.md
+          echo '```' >> plan_summary.md
+          
+          if [ $(wc -l < plan_output.txt) -gt 100 ]; then
+            echo "" >> plan_summary.md
+            echo "⚠️ *Plan output truncated. Full output available in artifacts.*" >> plan_summary.md
+          fi
+      
+      - name: Upload Plan Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: |
+            terraform/infrastructure/tfplan
+            terraform/infrastructure/plan_output.txt
+            terraform/infrastructure/plan_summary.md
+          retention-days: 30
+      
+      - name: Comment PR with Drift Status
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const driftDetected = '${{ steps.drift-check.outputs.drift_detected }}' === 'true';
+            
+            let comment = '## 🔍 Terraform Drift Detection Results\n\n';
+            
+            if (driftDetected) {
+              comment += '### ⚠️ DRIFT DETECTED\n\n';
+              comment += 'Infrastructure changes are required.\n\n';
+              
+              if (fs.existsSync('terraform/infrastructure/plan_summary.md')) {
+                const planSummary = fs.readFileSync('terraform/infrastructure/plan_summary.md', 'utf8');
+                comment += planSummary;
+              }
+            } else {
+              comment += '### ✅ No Drift Detected\n\n';
+              comment += 'Infrastructure matches the code. No changes required.\n';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  #==============================================================================
+  # Job 4: Send Email Alert on Drift Detection
+  #==============================================================================
+  send-drift-alert:
+    name: Send Drift Alert Email
+    runs-on: ubuntu-latest
+    needs: drift-detection
+    if: needs.drift-detection.outputs.drift_detected == 'true'
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Download Plan Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/infrastructure/
+      
+      - name: Prepare Email Content
+        id: email-content
+        run: |
+          TIMESTAMP=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          WORKFLOW_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          cat > email_body.txt << EOF
+          ⚠️ TERRAFORM DRIFT DETECTED ⚠️
+          
+          Infrastructure drift has been detected in your microservice deployment.
+          
+          📋 Details:
+          - Repository: ${{ github.repository }}
+          - Branch: ${{ github.ref_name }}
+          - Triggered by: ${{ github.actor }}
+          - Event: ${{ github.event_name }}
+          - Timestamp: ${TIMESTAMP}
+          
+          🔗 Workflow Run: ${WORKFLOW_URL}
+          
+          📊 Changes Summary:
+          $(head -n 50 terraform/infrastructure/plan_output.txt)
+          
+          ⚡ Next Steps:
+          1. Review the plan output in the workflow artifacts
+          2. Approve the workflow to apply changes, or
+          3. Cancel the workflow if changes are unexpected
+          
+          ⏸️ The workflow is now PAUSED waiting for your approval.
+          
+          To approve: Go to the workflow URL above and approve the deployment.
+          To reject: Cancel the workflow run.
+          
+          ---
+          This is an automated message from GitHub Actions.
+          EOF
+      
+      - name: Send Email via SendGrid
+        if: secrets.SENDGRID_API_KEY != ''
+        run: |
+          curl -X POST https://api.sendgrid.com/v3/mail/send \
+            -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "personalizations": [{
+                "to": [{"email": "${{ secrets.ALERT_EMAIL }}"}],
+                "subject": "🚨 Terraform Drift Detected - ${{ github.repository }}"
+              }],
+              "from": {"email": "${{ secrets.FROM_EMAIL }}"},
+              "content": [{
+                "type": "text/plain",
+                "value": '"$(cat email_body.txt | sed 's/"/\\"/g' | tr '\n' ' ')"'
+              }]
+            }'
+      
+      - name: Send Email via SMTP
+        if: secrets.SMTP_SERVER != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: 🚨 Terraform Drift Detected - ${{ github.repository }}
+          to: ${{ secrets.ALERT_EMAIL }}
+          from: ${{ secrets.FROM_EMAIL }}
+          body: file://email_body.txt
+          priority: high
+      
+      - name: Send Slack Notification (Optional)
+        if: secrets.SLACK_WEBHOOK_URL != ''
+        run: |
+          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+            -H "Content-Type: application/json" \
+            -d '{
+              "text": "⚠️ *Terraform Drift Detected*",
+              "blocks": [
+                {
+                  "type": "header",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "🚨 Terraform Drift Alert"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Repository:* ${{ github.repository }}\n*Branch:* ${{ github.ref_name }}\n*Triggered by:* ${{ github.actor }}"
+                  }
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "Infrastructure changes detected. Workflow paused for approval."
+                  }
+                },
+                {
+                  "type": "actions",
+                  "elements": [
+                    {
+                      "type": "button",
+                      "text": {
+                        "type": "plain_text",
+                        "text": "View Workflow"
+                      },
+                      "url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    }
+                  ]
+                }
+              ]
+            }'
+      
+      - name: Create Issue for Drift Detection
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const timestamp = new Date().toUTCString();
+            const workflowUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Terraform Drift Detected - ${timestamp}`,
+              body: `## ⚠️ Infrastructure Drift Alert
+              
+              Terraform has detected drift in the infrastructure.
+              
+              ### 📋 Details
+              - **Branch:** ${{ github.ref_name }}
+              - **Triggered by:** ${{ github.actor }}
+              - **Event:** ${{ github.event_name }}
+              - **Timestamp:** ${timestamp}
+              
+              ### 🔗 Links
+              - [View Workflow Run](${workflowUrl})
+              - [Download Plan Artifacts](${workflowUrl}#artifacts)
+              
+              ### ⏭️ Next Steps
+              1. Review the plan output in the workflow artifacts
+              2. Approve the workflow to apply changes
+              3. Close this issue after resolution
+              
+              ### 📊 Plan Summary
+              See workflow artifacts for full plan output.
+              
+              ---
+              *This issue was automatically created by GitHub Actions.*`,
+              labels: ['terraform', 'drift-detection', 'infrastructure']
+            });
+            
+            console.log(`Created issue #${issue.data.number}`);
+
+  #==============================================================================
+  # Job 5: Wait for Manual Approval (Only if Drift Detected)
+  #==============================================================================
+  await-approval:
+    name: Await Manual Approval
+    runs-on: ubuntu-latest
+    needs: [drift-detection, send-drift-alert]
+    if: |
+      needs.drift-detection.outputs.drift_detected == 'true' &&
+      (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'setup-backend') ||
+      github.event_name == 'schedule'
+    environment:
+      name: production-approval
+    
+    steps:
+      - name: Manual Approval Required
+        run: |
+          echo "⏸️  WORKFLOW PAUSED"
+          echo "================================================"
+          echo "Drift has been detected in the infrastructure."
+          echo "An email alert has been sent to the team."
+          echo ""
+          echo "This job requires manual approval to continue."
+          echo "Please review the plan output and approve or reject."
+          echo "================================================"
+
+  #==============================================================================
+  # Job 6: Apply Infrastructure Changes (After Approval or if No Drift)
+  #==============================================================================
+  apply:
+    name: Apply Infrastructure
+    runs-on: ubuntu-latest
+    needs: [drift-detection, await-approval]
+    if: |
+      always() &&
+      (needs.await-approval.result == 'success' || needs.drift-detection.outputs.drift_detected == 'false') &&
+      (
+        (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'setup-backend') ||
+        github.event_name == 'schedule'
+      )
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+      
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/microservice.pem
+          chmod 600 ~/.ssh/microservice.pem
+      
+      - name: Setup Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+          ansible --version
+      
+      - name: Terraform Init
+        working-directory: ./terraform/infrastructure
+        run: terraform init
+      
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-plan
+          path: terraform/infrastructure/
+      
+      - name: Terraform Apply
+        working-directory: ./terraform/infrastructure
+        run: |
+          echo "🚀 Applying infrastructure changes..."
+          terraform apply -auto-approve tfplan
+          echo "✅ Apply completed successfully!"
+      
+      - name: Display Outputs
+        if: github.event.inputs.action != 'destroy'
+        working-directory: ./terraform/infrastructure
+        run: |
+          echo "🎉 Deployment Complete!"
+          echo "================================"
+          terraform output -json
+          echo "================================"
+          echo "Server IP: $(terraform output -raw server_ip)"
+          echo "SSH Command: $(terraform output -raw ssh_connection)"
+      
+      - name: Send Success Notification
+        if: success() && needs.drift-detection.outputs.drift_detected == 'true'
+        run: |
+          echo "✅ Changes applied successfully after drift detection and approval"
+      
+      - name: Deployment Summary
+        if: github.event.inputs.action != 'destroy'
+        run: |
+          echo "### 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.drift-detection.outputs.drift_detected }}" == "true" ]; then
+            echo "⚠️ **Drift was detected and changes were applied after approval.**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "**Server IP:** \`$(cd terraform/infrastructure && terraform output -raw server_ip)\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**SSH Connection:**" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "$(cd terraform/infrastructure && terraform output -raw ssh_connection)" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Send Success Email
+        if: success() && needs.drift-detection.outputs.drift_detected == 'true' && secrets.SMTP_SERVER != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_SERVER }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: ✅ Terraform Changes Applied - ${{ github.repository }}
+          to: ${{ secrets.ALERT_EMAIL }}
+          from: ${{ secrets.FROM_EMAIL }}
+          body: |
+            ✅ Infrastructure changes have been successfully applied.
+            
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Workflow: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            
+            The previously detected drift has been resolved.
+            
+            ---
+            This is an automated message from GitHub Actions.

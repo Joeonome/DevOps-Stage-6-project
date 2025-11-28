@@ -1,0 +1,74 @@
+---
+- name: Deploy Stage 6 Application
+  hosts: all
+  become: yes
+  vars:
+    app_repo: "https://github.com/Joeonome/DevOps-Stage-6-project.git"
+    app_dest: "/home/ubuntu/stage6-app"
+    docker_compose_file: "docker-compose.yml"
+    traefik_file: "traefik.yml"   # Your traefik config
+    traefik_dynamic_file: "dynamic.yml"  # Optional dynamic config
+    domain_name: "example.com"    # Change to your domain
+    email: "admin@example.com"    # For SSL certificates
+
+  tasks:
+
+    # -------------------------
+    # 1. Clone or update repository
+    # -------------------------
+    - name: Clone or update application repository
+      git:
+        repo: "{{ app_repo }}"
+        dest: "{{ app_dest }}"
+        version: main
+        update: yes
+        force: yes
+      register: git_result
+
+    # -------------------------
+    # 2. Copy Traefik configuration if not exists
+    # -------------------------
+    - name: Ensure Traefik static config exists
+      copy:
+        src: "traefik/{{ traefik_file }}"
+        dest: "{{ app_dest }}/{{ traefik_file }}"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0644
+
+    - name: Ensure Traefik dynamic config exists
+      copy:
+        src: "traefik/{{ traefik_dynamic_file }}"
+        dest: "{{ app_dest }}/{{ traefik_dynamic_file }}"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0644
+
+    # -------------------------
+    # 3. Run Docker Compose idempotently
+    # -------------------------
+    - name: Start services with Docker Compose
+      shell: |
+        cd {{ app_dest }}
+        docker compose pull
+        docker compose up -d
+      args:
+        chdir: "{{ app_dest }}"
+      register: compose_result
+      changed_when: "'Creating' in compose_result.stdout or git_result.changed"
+      environment:
+        COMPOSE_HTTP_TIMEOUT: 200
+
+    # -------------------------
+    # 4. Setup SSL using Traefik (only if Traefik labels are present)
+    # -------------------------
+    - name: Create directory for Traefik ACME certificates
+      file:
+        path: "{{ app_dest }}/acme"
+        state: directory
+        mode: 0755
+
+    - name: Reload Traefik if Docker services changed
+      shell: |
+        docker compose exec -T traefik kill -SIGHUP 1
+      when: compose_result.changed
