@@ -315,8 +315,9 @@ jobs:
           ---
           This is an automated message from GitHub Actions.
           EOF
+      
       - name: Send Email via SendGrid
-        if: {{ secrets.SENDGRID_API_KEY }} != ''
+        if: secrets.SENDGRID_API_KEY != ''
         run: |
           curl -X POST https://api.sendgrid.com/v3/mail/send \
             -H "Authorization: Bearer ${{ secrets.SENDGRID_API_KEY }}" \
