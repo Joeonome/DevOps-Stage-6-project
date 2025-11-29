@@ -102,7 +102,7 @@ jobs:
   # Job 2: Validate Terraform Configuration
   #==============================================================================
   validate:
-    name: Validate Terraform
+    name: Validate Terraform Configuration
     runs-on: ubuntu-latest
     if: github.event.inputs.action != 'setup-backend'
     
