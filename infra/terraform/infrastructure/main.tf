@@ -154,30 +154,74 @@ resource "null_resource" "wait_for_instance" {
 
 # Generate Ansible inventory file
 resource "local_file" "ansible_inventory" {
-  filename = var.ansible_inventory_path
+  filename = "${path.module}/${var.ansible_inventory_path}"
   content  = <<-EOT
 [servers]
 todo_server ansible_host=${aws_instance.todo_server.public_ip} ansible_user=${var.ssh_user} ansible_ssh_private_key_file=${var.private_key_path}
+
+[servers:vars]
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
   EOT
 
-  depends_on = [null_resource.wait_for_instance]
+  depends_on = [aws_instance.todo_server]
+}
+
+# Wait for instance to be SSH-ready and Docker installed
+resource "null_resource" "wait_for_instance" {
+  depends_on = [local_file.ansible_inventory]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      echo "Waiting for instance ${aws_instance.todo_server.public_ip} to be ready..."
+      sleep 30
+      
+      max_attempts=30
+      attempt=0
+      
+      while [ $attempt -lt $max_attempts ]; do
+        echo "Attempt $((attempt + 1))/$max_attempts: Checking SSH connectivity..."
+        
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i ${var.private_key_path} ${var.ssh_user}@${aws_instance.todo_server.public_ip} "echo 'SSH is ready' && [ -f /home/ubuntu/.docker-installed ]" 2>/dev/null; then
+          echo "✅ Instance is ready and Docker is installed!"
+          exit 0
+        fi
+        
+        attempt=$((attempt + 1))
+        sleep 10
+      done
+      
+      echo "❌ Timeout waiting for instance to be ready"
+      exit 1
+    EOT
+  }
+
+  triggers = {
+    instance_id = aws_instance.todo_server.id
+  }
 }
 
 # Run Ansible playbook
 resource "null_resource" "ansible_provision" {
-  depends_on = [local_file.ansible_inventory]
+  depends_on = [null_resource.wait_for_instance]
 
   provisioner "local-exec" {
-  command = <<EOT
-  ANSIBLE_HOST_KEY_CHECKING=False \
-  ansible-playbook \
-    -i ${path.module}/../../ansible/inventory.ini \
-    ${path.module}/../../ansible/playbook.yml
-  EOT
-}
-
+    command = <<-EOT
+      echo "Running Ansible playbook against ${aws_instance.todo_server.public_ip}..."
+      echo "Inventory file location: ${path.module}/${var.ansible_inventory_path}"
+      echo "Inventory file contents:"
+      cat ${path.module}/${var.ansible_inventory_path}
+      echo "---"
+      ANSIBLE_HOST_KEY_CHECKING=False \
+      ansible-playbook \
+        -i ${path.module}/${var.ansible_inventory_path} \
+        ${path.module}/${var.ansible_playbook_path} \
+        --timeout=60 \
+        -vv
+    EOT
+  }
 
   triggers = {
     instance_id = aws_instance.todo_server.id
+    always_run  = timestamp()
   }
 }
