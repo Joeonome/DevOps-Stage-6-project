@@ -1,68 +1,48 @@
 ---
-- name: Install dependencies for deployment
-  hosts: all
-  become: yes
-  tasks:
+- name: Install base packages
+  apt:
+    name:
+      - python3-pip
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - software-properties-common
+      - git
+    state: present
+    update_cache: yes
 
-    # -------------------------
-    # 1. Install required packages
-    # -------------------------
-    - name: Install base packages
-      apt:
-        name:
-          - python3-pip
-          - ca-certificates
-          - curl
-          - gnupg
-          - lsb-release
-          - software-properties-common
-          - git
-        state: present
-        update_cache: yes
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
 
-    # -------------------------
-    # 2. Add Docker GPG key and repository
-    # -------------------------
-    - name: Add Docker GPG key
-      apt_key:
-        url: https://download.docker.com/linux/ubuntu/gpg
-        state: present
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
 
-    - name: Add Docker repository
-      apt_repository:
-        repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
-        state: present
+- name: Install Docker Engine and Compose plugin
+  apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: yes
 
-    # -------------------------
-    # 3. Install Docker Engine + Compose Plugin
-    # -------------------------
-    - name: Install Docker Engine and Compose plugin
-      apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
-        state: present
-        update_cache: yes
+- name: Enable and start Docker service
+  systemd:
+    name: docker
+    enabled: yes
+    state: started
 
-    # -------------------------
-    # 4. Enable and start Docker service
-    # -------------------------
-    - name: Enable and start Docker service
-      systemd:
-        name: docker
-        enabled: yes
-        state: started
+- name: Verify Docker Compose plugin
+  command: docker compose version
+  register: compose_version
+  changed_when: false
 
-    # -------------------------
-    # 5. Optional: Ensure Docker Compose works
-    # -------------------------
-    - name: Verify Docker Compose plugin
-      command: docker compose version
-      register: compose_version
-      changed_when: false
-
-    - debug:
-        msg: "Docker Compose version: {{ compose_version.stdout }}"
+- debug:
+    msg: "Docker Compose version: {{ compose_version.stdout }}"
