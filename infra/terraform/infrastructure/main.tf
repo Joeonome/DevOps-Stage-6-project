@@ -75,9 +75,6 @@ exec 2>&1
 
 echo "Starting user data script..."
 
-# Wait for cloud-init to complete
-cloud-init status --wait
-
 # Update system
 echo "Updating system packages..."
 sudo apt update -y
