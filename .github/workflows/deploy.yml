@@ -484,6 +484,7 @@ jobs:
       
       - name: Deployment Summary
         if: github.event.inputs.action != 'destroy'
+        working-directory: ./infra/terraform/infrastructure 
         run: |
           echo "### 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

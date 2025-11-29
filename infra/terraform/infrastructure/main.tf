@@ -125,29 +125,22 @@ EOF
   }
 }
 
-# Generate Ansible inventory file
-resource "local_file" "ansible_inventory" {
-  filename = "${path.module}/${var.ansible_inventory_path}"
-  content  = <<-EOT
+# Wait for instance and create inventory file (not tracked in state)
+resource "null_resource" "wait_for_instance" {
+  depends_on = [aws_instance.todo_server]
+
+  provisioner "local-exec" {
+    command = <<-EOT
+echo "Creating Ansible inventory file..."
+mkdir -p ${path.module}/../../ansible
+cat > ${path.module}/${var.ansible_inventory_path} <<'INVENTORY'
 [servers]
 todo_server ansible_host=${aws_instance.todo_server.public_ip} ansible_user=${var.ssh_user} ansible_ssh_private_key_file=${var.private_key_path}
 
 [servers:vars]
 ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
-EOT
+INVENTORY
 
-  depends_on = [aws_instance.todo_server]
-  
-  lifecycle {
-    ignore_changes = all
-  }
-}
-
-resource "null_resource" "wait_for_instance" {
-  depends_on = [aws_instance.todo_server, local_file.ansible_inventory]
-
-  provisioner "local-exec" {
-    command = <<-EOT
 echo "Waiting for instance ${aws_instance.todo_server.public_ip} to be ready..."
 sleep 30
 
@@ -199,6 +192,5 @@ EOT
 
   triggers = {
     instance_id = aws_instance.todo_server.id
-    
   }
 }
