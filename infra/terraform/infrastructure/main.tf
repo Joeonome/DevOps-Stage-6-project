@@ -150,7 +150,7 @@ resource "null_resource" "wait_for_instance" {
 echo "Waiting for instance ${aws_instance.todo_server.public_ip} to be ready..."
 sleep 30
 
-max_attempts=30
+max_attempts=60
 attempt=0
 
 while [ $attempt -lt $max_attempts ]; do
@@ -162,7 +162,7 @@ while [ $attempt -lt $max_attempts ]; do
   fi
   
   attempt=$((attempt + 1))
-  sleep 10
+  sleep 20
 done
 
 echo "❌ Timeout waiting for instance to be ready"
