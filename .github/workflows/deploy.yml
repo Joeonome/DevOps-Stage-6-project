@@ -402,7 +402,7 @@ jobs:
           echo "================================================"
 
   #==============================================================================
-  # Job 6: Apply Infrastructure Changes (After Approval or if No Drift) 
+  # Job 6: Apply Infrastructure Changes (After Approval or if No Drift)   
   #==============================================================================
   apply:
     name: Apply Infrastructure
