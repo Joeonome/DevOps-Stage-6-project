@@ -99,7 +99,7 @@ jobs:
         run: terraform output -raw backend_config
 
   #==============================================================================
-  # Job 2: Validate Terraform Configuration
+  # Job 2: Validate Terraform Configuration  #
   #==============================================================================
   validate:
     name: Validate Terraform Configuration
