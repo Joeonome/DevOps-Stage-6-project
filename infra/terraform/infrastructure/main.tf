@@ -55,6 +55,19 @@ resource "aws_instance" "todo_server" {
   key_name               = var.key_name
   vpc_security_group_ids = [aws_security_group.micro_service.id]
 
+
+ root_block_device {
+    volume_size           = 30  # GB (increased from default 8GB)
+    volume_type           = "gp3"
+    delete_on_termination = true
+    encrypted             = true
+    tags = {
+      Name = "${var.server_name}-root-volume"
+    }
+  }
+
+
+
   user_data = <<-EOF
     #!/bin/bash
     set -e
