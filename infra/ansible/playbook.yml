@@ -1,6 +1,7 @@
 ---
-- hosts: servers
+- name: Deploy Stage 6 Application
+  hosts: all
   become: yes
   roles:
-    - dependencies
+    -dependencies
     - deploy
