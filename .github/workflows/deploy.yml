@@ -458,6 +458,8 @@ jobs:
       - name: Terraform Apply
         working-directory: ./infra/terraform/infrastructure
         run: |
+          echo "🚀 Planning infrastructure changes..."
+          terraform plan -out=tfplan
           echo "🚀 Applying infrastructure changes..."
           terraform apply -auto-approve tfplan
           echo "✅ Apply completed successfully!"
