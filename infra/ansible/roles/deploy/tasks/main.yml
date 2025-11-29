@@ -11,22 +11,6 @@
     force: yes
   register: git_result
 
-- name: Ensure Traefik static config exists
-  copy:
-    src: "traefik/traefik.yml"
-    dest: "/home/ubuntu/stage6-app/traefik.yml"
-    owner: ubuntu
-    group: ubuntu
-    mode: 0644
-
-- name: Ensure Traefik dynamic config exists
-  copy:
-    src: "traefik/dynamic.yml"
-    dest: "/home/ubuntu/stage6-app/dynamic.yml"
-    owner: ubuntu
-    group: ubuntu
-    mode: 0644
-
 - name: Start services with Docker Compose
   shell: |
     cd /home/ubuntu/stage6-app
