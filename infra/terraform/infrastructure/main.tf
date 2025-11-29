@@ -183,7 +183,7 @@ resource "null_resource" "wait_for_instance" {
   triggers = {
     instance_id = aws_instance.todo_server.id
   }
-}
+
 
 # Run Ansible playbook
 resource "null_resource" "ansible_provision" {
