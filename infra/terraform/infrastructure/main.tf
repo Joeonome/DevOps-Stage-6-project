@@ -195,6 +195,6 @@ EOT
 
   triggers = {
     instance_id = aws_instance.todo_server.id
-    always_run  = timestamp()
+    
   }
 }
