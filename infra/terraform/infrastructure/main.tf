@@ -137,6 +137,12 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/
 EOT
 
   depends_on = [aws_instance.todo_server]
+  
+  lifecycle {
+    ignore_changes = [
+      filename
+    ]
+  }
 }
 
 resource "null_resource" "wait_for_instance" {
