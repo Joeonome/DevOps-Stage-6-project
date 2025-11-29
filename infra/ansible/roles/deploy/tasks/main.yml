@@ -29,7 +29,8 @@
     state: directory
     mode: 0755
 
-- name: Reload Traefik if Docker services changed
-  shell: |
-    docker compose exec -T traefik kill -SIGHUP 1
-  when: compose_result.changed
+- name: Restart Traefik container
+  command: docker compose restart traefik
+  args:
+    chdir: /home/ubuntu/stage6-app
+
