@@ -456,7 +456,8 @@ jobs:
           path: infra/terraform/infrastructure/
       
       - name: Terraform Apply
-        working-directory: ./infra/terraform/infrastructure
+        working-directory: infra/terraform/infrastructure/
+
         run: |
           echo "🚀 Planning infrastructure changes..."
           terraform plan -out=tfplan
@@ -466,7 +467,8 @@ jobs:
       
       - name: Display Outputs
         if: github.event.inputs.action != 'destroy'
-        working-directory: ./terraform/infrastructure
+        working-directory: infra/terraform/infrastructure/
+
         run: |
           echo "🎉 Deployment Complete!"
           echo "================================"
