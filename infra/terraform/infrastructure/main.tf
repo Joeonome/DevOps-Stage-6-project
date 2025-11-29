@@ -131,26 +131,7 @@ resource "aws_instance" "todo_server" {
   }
 }
 
-# Wait for instance to be fully ready
-resource "null_resource" "wait_for_instance" {
-  depends_on = [aws_instance.todo_server]
 
-  provisioner "remote-exec" {
-    connection {
-      type        = "ssh"
-      user        = var.ssh_user
-      private_key = file(var.private_key_path)
-      host        = aws_instance.todo_server.public_ip
-      timeout     = "5m"
-    }
-
-    inline = [
-      "echo 'Waiting for user_data to complete...'",
-      "timeout 300 bash -c 'until [ -f /home/ubuntu/.docker-installed ]; do sleep 5; done' || echo 'Timeout waiting for Docker installation'",
-      "echo 'Instance is ready for provisioning!'"
-    ]
-  }
-}
 
 # Generate Ansible inventory file
 resource "local_file" "ansible_inventory" {
@@ -166,9 +147,8 @@ ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/
   depends_on = [aws_instance.todo_server]
 }
 
-# Wait for instance to be SSH-ready and Docker installed
 resource "null_resource" "wait_for_instance" {
-  depends_on = [local_file.ansible_inventory]
+  depends_on = [aws_instance.todo_server, local_file.ansible_inventory]
 
   provisioner "local-exec" {
     command = <<-EOT
@@ -200,6 +180,11 @@ resource "null_resource" "wait_for_instance" {
   }
 }
 
+  triggers = {
+    instance_id = aws_instance.todo_server.id
+  }
+}
+
 # Run Ansible playbook
 resource "null_resource" "ansible_provision" {
   depends_on = [null_resource.wait_for_instance]
@@ -211,6 +196,8 @@ resource "null_resource" "ansible_provision" {
       echo "Inventory file contents:"
       cat ${path.module}/${var.ansible_inventory_path}
       echo "---"
+
+
       ANSIBLE_HOST_KEY_CHECKING=False \
       ansible-playbook \
         -i ${path.module}/${var.ansible_inventory_path} \
