@@ -39,7 +39,7 @@ variable "ansible_inventory_path" {
 variable "ansible_playbook_path" {
   description = "Path to Ansible playbook"
   type        = string
-  default     = "../ansible/playbook.yml"
+  default     = "../../ansible/playbook.yml"
 }
 
 variable "server_name" {
