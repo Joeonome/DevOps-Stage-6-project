@@ -139,9 +139,7 @@ EOT
   depends_on = [aws_instance.todo_server]
   
   lifecycle {
-    ignore_changes = [
-      filename
-    ]
+    ignore_changes = all
   }
 }
 
