@@ -1,8 +1,10 @@
 FROM python:3.6-slim
 
-RUN apt-get update && apt-get install -y \
-    gcc \
-    python3-dev \
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        gcc \
+        python3-dev \
+        python3-distutils \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
