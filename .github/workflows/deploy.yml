@@ -455,15 +455,20 @@ jobs:
           name: terraform-plan
           path: infra/terraform/infrastructure/
       
-      - name: Terraform Apply
+      - name: Terraform Apply or Destroy
         working-directory: infra/terraform/infrastructure/
-
         run: |
-          echo "🚀 Planning infrastructure changes..."
-          terraform plan -out=tfplan
-          echo "🚀 Applying infrastructure changes..."
-          terraform apply -auto-approve tfplan
-          echo "✅ Apply completed successfully!"
+          if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
+            echo "🗑️  Destroying infrastructure..."
+            terraform destroy -auto-approve
+            echo "✅ Destroy completed successfully!"
+          else
+            echo "🚀 Planning infrastructure changes..."
+            terraform plan -out=tfplan
+            echo "🚀 Applying infrastructure changes..."
+            terraform apply -auto-approve tfplan
+            echo "✅ Apply completed successfully!"
+          fi
       
       - name: Display Outputs
         if: github.event.inputs.action != 'destroy'
